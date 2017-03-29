@@ -23,7 +23,7 @@ query = 'SELECT Inst.idInstance, Inst.name, Inst.md5, Res.idJob ' + \
     'INNER JOIN Instances AS Inst ON Res.Instances_idInstance = Inst.idInstance ' + \
     'WHERE Res.SolverConfig_idSolverConfig = %s ' + \
 	'AND Res.resultCode = %s ' + \
-	'LIMIT 5'
+	'LIMIT 2'
 print(query)
 
 cursor = cnx.cursor()
@@ -35,40 +35,60 @@ for row in cursor:
 
 cursor.close()
 
+root = 'instances'
+# Clean directory
+if not os.path.isdir(root):
+    os.makedirs(root)
+
 # [instance_id, instance_name, instance_md5, job_id]
 for job in jobs:
     print(job)
 
-    print('Reading {}...'.format(job[1]))
+    instance_id, name, md5, job_id = job
+    
+    print('Reading {}...'.format(name))
     query = 'SELECT instance FROM Instances ' + \
 	    'WHERE idInstance = %s'
     cursor = cnx.cursor()
-    cursor.execute(query, (job[0],))
+    cursor.execute(query, (instance_id,))
     row = cursor.fetchone()
     assert row is not None
+    
+    dir = os.path.join(root, md5)
+    if not os.path.isdir(dir):
+        os.makedirs(dir)
+    
     if is_lzma(row[0]):
-        with open(job[1] + '.lzma', 'wb') as file:
+        with open(os.path.join(dir, name + '.lzma'), 'wb') as file:
             file.write(row[0][4:])
-        print("Decompressing {}...".format(job[1] + '.lzma'))
-        with lzma.open(job[1] + '.lzma', 'rb') as lzma_file:
-            with open(job[1], 'wb') as file:
+        print("Decompressing {}...".format(name + '.lzma'))
+        with lzma.open(os.path.join(dir, name + '.lzma'), 'rb') as lzma_file:
+            with open(os.path.join(dir, name), 'wb') as file:
                 for row in lzma_file:
                     file.write(row)
-        os.remove(job[1] + '.lzma')
+        os.remove(os.path.join(dir, name + '.lzma'))
     else:
-        with open(job[1], 'wb') as file:
+        with open(os.path.join(dir, name), 'wb') as file:
             file.write(row[0])
     cursor.close()
 
-    print('Reading the result of {}...'.format(job[1]))
+    print('Reading the result...')
     query = 'SELECT solverOutput FROM ExperimentResultsOutput ' + \
 	    'WHERE ExperimentResults_idJob = %s'
     cursor = cnx.cursor()
-    cursor.execute(query, (job[3],))
+    cursor.execute(query, (job_id,))
     row = cursor.fetchone()
     assert row is not None
-    with open(job[1] + '.result', 'wb') as file:
+    with open(os.path.join(dir, name + '.result'), 'wb') as file:
         file.write(row[0])
     cursor.close()
+
+    # Extract assignment
+    print('Extracting the assignment...')
+    with open(os.path.join(dir, name + '.result'), 'r') as result_file:
+        with open(os.path.join(dir, name + '.assign'), 'w') as assign_file:
+            for line in result_file:
+                if line.startswith('v '):
+                    assign_file.write(line[len('v '):])
 
 cnx.close()
